@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Clone - 2025</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="cdnjs.cloudflare.com">
+    <style>
+        body { background-color: #537395; background-image: url('user-images.githubusercontent.com'); }
+        .tg-bubble { position: relative; border-radius: 12px; padding: 8px 12px; margin-bottom: 4px; max-width: 85%; }
+        .tg-in { background: #ffffff; color: #000; border-bottom-left-radius: 2px; }
+        .tg-out { background: #effdde; color: #000; border-bottom-right-radius: 2px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Telegram Header -->
+    <header class="bg-[#517da2] p-3 text-white flex items-center gap-4 shadow-md z-10">
+        <i class="fas fa-bars text-xl cursor-pointer"></i>
+        <div class="flex-1">
+            <h1 id="room-name" class="font-bold text-lg leading-tight">Global Group</h1>
+            <p id="status-line" class="text-xs text-blue-100 italic">Connecting...</p>
+        </div>
+        <div id="auth-area">
+            <button id="login-btn" class="bg-white text-[#517da2] px-4 py-1 rounded text-sm font-bold">Login</button>
+            <button id="logout-btn" class="hidden text-xl"><i class="fas fa-sign-out-alt"></i></button>
+        </div>
+    </header>
+
+    <!-- Chat Body -->
+    <div id="chat-window" class="flex-1 overflow-y-auto p-4 flex flex-col space-y-2 pb-24">
+        <!-- Messages will appear here -->
+    </div>
+
+    <!-- Input Bar (Telegram Style) -->
+    <div id="input-container" class="hidden fixed bottom-0 left-0 right-0 p-2 bg-gray-100 flex items-center gap-2 max-w-3xl mx-auto shadow-2xl">
+        <button class="text-gray-500 text-xl px-2"><i class="far fa-face-smile"></i></button>
+        <form id="chat-form" class="flex-1 flex gap-2">
+            <input id="msg-input" type="text" placeholder="Message" class="flex-1 bg-white border-none rounded-full px-4 py-2 outline-none">
+            <button type="submit" class="bg-[#517da2] text-white w-10 h-10 rounded-full flex items-center justify-center">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </form>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "www.gstatic.com";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "www.gstatic.com";
+        import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "www.gstatic.com";
+        import { getDatabase, ref, onValue, set, onDisconnect } from "www.gstatic.com";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAnFD-GugLBdSVi3FhkNquTQ2azjE9Ukws",
+            authDomain: "mahtabchatpt.firebaseapp.com",
+            projectId: "mahtabchatpt",
+            storageBucket: "mahtabchatpt.firebasestorage.app",
+            messagingSenderId: "811929334738",
+            appId: "1:811929334738:web:e2fb3b4e83811f2eab8e0b",
+            databaseURL: "https://mahtabchatpt-default-rtdb.firebaseio.com" // RTDB needed for Online/Offline
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const rtdb = getDatabase(app);
+        const provider = new GoogleAuthProvider();
+
+        const chatWindow = document.getElementById('chat-window');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const chatForm = document.getElementById('chat-form');
+        const inputContainer = document.getElementById('input-container');
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loginBtn.classList.add('hidden');
+                logoutBtn.classList.remove('hidden');
+                inputContainer.classList.remove('hidden');
+                setupPresence(user);
+                loadMessages(user);
+            } else {
+                loginBtn.classList.remove('hidden');
+                logoutBtn.classList.add('hidden');
+                inputContainer.classList.add('hidden');
+                chatWindow.innerHTML = `<div class="bg-white/80 p-4 rounded-xl text-center mx-auto mt-20">Please Login to Join Chat</div>`;
+            }
+        });
+
+        // Online/Offline Status Logic
+        function setupPresence(user) {
+            const userStatusRef = ref(rtdb, '/status/' + user.uid);
+            const isOfflineData = { state: 'offline', last_changed: Date.now() };
+            const isOnlineData = { state: 'online', name: user.displayName, last_changed: Date.now() };
+
+            onValue(ref(rtdb, '.info/connected'), (snapshot) => {
+                if (snapshot.val() === false) return;
+                onDisconnect(userStatusRef).set(isOfflineData).then(() => {
+                    set(userStatusRef, isOnlineData);
+                });
+            });
+
+            // Update Total Online Count UI
+            onValue(ref(rtdb, '/status'), (snap) => {
+                let onlineCount = 0;
+                snap.forEach(child => { if(child.val().state === 'online') onlineCount++; });
+                document.getElementById('status-line').innerText = `${onlineCount} members online`;
+            });
+        }
+
+        loginBtn.onclick = () => signInWithPopup(auth, provider);
+        logoutBtn.onclick = () => signOut(auth);
+
+        chatForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const text = document.getElementById('msg-input').value;
+            if (!text.trim()) return;
+            await addDoc(collection(db, "messages"), {
+                text, uid: auth.currentUser.uid, name: auth.currentUser.displayName,
+                photo: auth.currentUser.photoURL, createdAt: serverTimestamp()
+            });
+            document.getElementById('msg-input').value = "";
+        };
+
+        function loadMessages(currentUser) {
+            const q = query(collection(db, "messages"), orderBy("createdAt", "asc"));
+            onSnapshot(q, (snap) => {
+                chatWindow.innerHTML = "";
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const isMe = d.uid === currentUser.uid;
+                    chatWindow.innerHTML += `
+                        <div class="flex ${isMe ? 'justify-end' : 'justify-start'} w-full">
+                            <div class="tg-bubble ${isMe ? 'tg-out' : 'tg-in'} shadow-md">
+                                ${!isMe ? `<p class="text-[#248b1d] text-[11px] font-bold mb-1">${d.name}</p>` : ''}
+                                <p class="text-[14px] leading-tight">${d.text}</p>
+                                <p class="text-[10px] text-gray-400 text-right mt-1">${new Date(d.createdAt?.seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                            </div>
+                        </div>`;
+                });
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            });
+        }
+    </script>
+</body>
+</html>
